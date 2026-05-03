@@ -44,8 +44,11 @@ struct CrockfordEncoder {
     ///   - ``FeistelCipherError/emptyToken`` if the token is empty after normalisation.
     ///   - ``FeistelCipherError/invalidCharacter(_:)`` if the token contains a character outside
     ///     the Crockford Base32 alphabet that could not be corrected automatically.
-    ///   - ``FeistelCipherError/checksumMismatch`` if the trailing check character does not match.
-    static func decode(_ input: String) throws(FeistelCipherError) -> UInt64 {
+    ///   - ``FeistelCipherError/checksumMismatch`` if `withChecksum` is `true` and the trailing
+    ///     check character does not match.
+    static func decode(_ input: String, withChecksum: Bool = true) throws(FeistelCipherError)
+        -> UInt64
+    {
         let clean = input.uppercased()
             .replacing("-", with: "")
             .replacing("O", with: "0")
@@ -54,9 +57,17 @@ struct CrockfordEncoder {
 
         guard !clean.isEmpty else { throw .emptyToken }
 
-        // 1. Separate the value from the check symbol (last character)
-        let valuePart = String(clean.dropLast())
-        let providedCheckChar = clean.last!
+        // 1. Separate the value from the optional check symbol
+        let valuePart: String
+        let providedCheckChar: Character?
+
+        if withChecksum {
+            valuePart = String(clean.dropLast())
+            providedCheckChar = clean.last
+        } else {
+            valuePart = clean
+            providedCheckChar = nil
+        }
 
         // 2. Decode the value part, throwing on any unrecognised character
         var numericValue: UInt64 = 0
@@ -68,19 +79,35 @@ struct CrockfordEncoder {
                 numericValue * 32 + UInt64(alphabet.distance(from: alphabet.startIndex, to: index))
         }
 
-        // 3. Validate the check symbol
-        let expectedCheckIndex = Int(numericValue % 37)
-        let expectedCheckChar = checkSymbols[
-            checkSymbols.index(checkSymbols.startIndex, offsetBy: expectedCheckIndex)]
-
-        guard providedCheckChar == expectedCheckChar else {
-            throw .checksumMismatch
+        // 3. Validate the check symbol (only when withChecksum is true)
+        if let checkChar = providedCheckChar {
+            let expectedCheckIndex = Int(numericValue % 37)
+            let expectedCheckChar = checkSymbols[
+                checkSymbols.index(checkSymbols.startIndex, offsetBy: expectedCheckIndex)]
+            guard checkChar == expectedCheckChar else {
+                throw .checksumMismatch
+            }
         }
 
         return numericValue
     }
 
     // MARK: - Encoding
+
+    /// Encodes a `UInt64` value as a Crockford Base32 string, optionally appending a
+    /// modulo-37 check character.
+    ///
+    /// This is the unified entry point that mirrors ``decode(_:withChecksum:)``.
+    /// Pass `withChecksum: true` to append a check character, or `false` for a raw
+    /// Base32 string with no trailing check symbol.
+    ///
+    /// - Parameters:
+    ///   - value: The `UInt64` value to encode.
+    ///   - withChecksum: When `true`, a modulo-37 check character is appended.
+    /// - Returns: A Crockford Base32 string.
+    static func encode(_ value: UInt64, withChecksum: Bool) -> String {
+        withChecksum ? encodeWithChecksum(value) : encode(value)
+    }
 
     /// Encodes a `UInt64` value as a Crockford Base32 string and appends a modulo-37 check
     /// character to the end.
