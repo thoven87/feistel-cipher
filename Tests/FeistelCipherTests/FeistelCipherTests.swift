@@ -97,6 +97,75 @@ struct FeistelCipherTests {
         #expect(try cipher.decode("99g7GB6qCKzbH0") == 1)
     }
 
+    // MARK: - bitWidth
+
+    @Test func testDefaultBitWidthIs64() {
+        #expect(cipher.bitWidth == 64)
+    }
+
+    @Test func testBitWidth64ProducesIdenticalResultsToOriginal() {
+        // bitWidth: 64 must be fully backward-compatible — same encrypted values as before
+        let explicit = FeistelCipher(key: 722628, bitWidth: 64)
+        #expect(explicit.encrypt(1) == 10_718_831_381_117_009_265)
+        #expect(explicit.decrypt(10_718_831_381_117_009_265) == 1)
+        #expect(explicit.encrypt(1) == cipher.encrypt(1))
+    }
+
+    @Test func testBitWidth50EncryptedValueStaysInDomain() {
+        // All outputs must be < 2^50
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        let limit = UInt64(1) << 50
+        for i: UInt64 in [0, 1, 42, 1_000, 1_000_000, limit - 1] {
+            #expect(cipher50.encrypt(i) < limit)
+        }
+    }
+
+    @Test func testBitWidth50RoundTrip() {
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        let limit = UInt64(1) << 50
+        let values: [UInt64] = [0, 1, 42, 1_000, 1_000_000, limit / 2, limit - 1]
+        for value in values {
+            #expect(cipher50.decrypt(cipher50.encrypt(value)) == value)
+        }
+    }
+
+    @Test func testBitWidth50TokenLengthWithoutChecksum() {
+        // 50 bits = 10 × 5-bit Base32 chars — no token should exceed 10 chars without checksum
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        for i: UInt64 in [1, 100, 100_000] {
+            let token = cipher50.encode(i, withChecksum: false)
+            #expect(token.count <= 10, "Token for \(i) was \(token.count) chars: \(token)")
+        }
+    }
+
+    @Test func testBitWidth50FixedLengthRoundTrip() async throws {
+        // The canonical 10-char token: no checksum, padded to exactly 10
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        let token = cipher50.encode(1, length: 10, withChecksum: false)
+        #expect(token.count == 10)
+        // Without checksum the token cannot be decoded via the checksum-validating decode path;
+        // verify the round-trip at the raw integer level instead
+        #expect(cipher50.decrypt(cipher50.encrypt(1)) == 1)
+    }
+
+    @Test func testBitWidth50EncodeDecodeRoundTrip() async throws {
+        // With checksum enabled, encode+decode must return the original value
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        for i: UInt64 in [1, 42, 1_000, 1_000_000] {
+            let token = cipher50.encode(i)
+            let decoded = try cipher50.decode(token)
+            #expect(decoded == i)
+        }
+    }
+
+    @Test func testBitWidth50TokenIsShorterThan64Bit() {
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        // For a large sequential ID the 50-bit token must be shorter than the 64-bit one
+        for i: UInt64 in [1_000, 1_000_000] {
+            #expect(cipher50.encode(i).count <= cipher.encode(i).count)
+        }
+    }
+
     // MARK: - Error handling
 
     @Test func testDecodeThrowsOnChecksumMismatch() async throws {

@@ -131,22 +131,24 @@ struct CrockfordEncoder {
 
     // MARK: - Formatting
 
-    /// Formats an encoded string into dash-separated groups of four characters for improved
+    /// Formats an encoded string into dash-separated groups of `groupSize` characters for improved
     /// readability and ease of manual transcription.
     ///
-    /// For example, `"99G7GB6QCKZBH0"` becomes `"99G7-GB6Q-CKZB-H0"`.
+    /// For example, with `groupSize: 4`, `"99G7GB6QCKZBH0"` becomes `"99G7-GB6Q-CKZB-H0"`.
+    /// With `groupSize: 3`, `"003FW5TGB"` becomes `"003-FW5-TGB"`.
     ///
     /// The dashes are purely cosmetic. ``decode(_:)`` strips them automatically, so a formatted
     /// string can be passed directly to ``decode(_:)`` without pre-processing.
     ///
-    /// - Parameter encoded: A raw Crockford Base32 string (with or without a check character).
-    /// - Returns: The same string with a `-` inserted after every fourth character.
-    static func formatForCopying(_ encoded: String) -> String {
-        // Group into chunks of 4 for maximum readability
+    /// - Parameters:
+    ///   - encoded: A raw Crockford Base32 string (with or without a check character).
+    ///   - groupSize: The number of characters per dash-separated group. Defaults to `4`.
+    /// - Returns: The same string with a `-` inserted after every `groupSize` characters.
+    static func formatForCopying(_ encoded: String, groupSize: Int = 4) -> String {
         var result = ""
         let characters = Array(encoded)
         for (index, char) in characters.enumerated() {
-            if index > 0 && index % 4 == 0 {
+            if index > 0 && index % groupSize == 0 {
                 result.append("-")
             }
             result.append(char)
