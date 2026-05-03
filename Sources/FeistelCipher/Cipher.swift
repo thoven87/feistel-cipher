@@ -175,8 +175,7 @@ public struct FeistelCipher: Sendable {
     /// ```
     public func encode(_ value: UInt64, withChecksum: Bool = true) -> String {
         let data = encrypt(value)
-        return withChecksum
-            ? CrockfordEncoder.encodeWithChecksum(data) : CrockfordEncoder.encode(data)
+        return CrockfordEncoder.encode(data, withChecksum: withChecksum)
     }
 
     /// Encrypts a value and encodes it as a Crockford Base32 string padded to a fixed length.
@@ -226,22 +225,35 @@ public struct FeistelCipher: Sendable {
     ///
     /// - Parameter value: A Crockford Base32 string previously produced by ``encode(_:withChecksum:)``
     ///   or ``encode(_:length:withChecksum:)``.
+    /// - Parameters:
+    ///   - value: A Crockford Base32 string previously produced by ``encode(_:withChecksum:)``
+    ///     or ``encode(_:length:withChecksum:)``.
+    ///   - withChecksum: When `true` (the default), the trailing check character is validated
+    ///     before decoding. Set to `false` when decoding tokens that were encoded with
+    ///     `withChecksum: false`.
     /// - Returns: The original plain integer.
     /// - Throws:
     ///   - ``FeistelCipherError/emptyToken`` if the token is empty after normalisation.
     ///   - ``FeistelCipherError/invalidCharacter(_:)`` if the token contains a character outside
     ///     the Crockford Base32 alphabet that could not be corrected automatically.
-    ///   - ``FeistelCipherError/checksumMismatch`` if the trailing check character does not match.
+    ///   - ``FeistelCipherError/checksumMismatch`` if `withChecksum` is `true` and the trailing
+    ///     check character does not match.
     ///
     /// ## Example
     /// ```swift
     /// let cipher = FeistelCipher(key: 722628)
-    /// try cipher.decode("99G7GB6QCKZBH0")    // 1
-    /// try cipher.decode("0099G7GB6QCKZBH0")  // 1  (padded token, same result)
-    /// try cipher.decode("99G7GB6QCKZBH9")    // throws FeistelCipherError.checksumMismatch
+    ///
+    /// // Default — checksum validated
+    /// try cipher.decode("99G7GB6QCKZBH0")                  // 1
+    ///
+    /// // Token encoded without checksum — must decode the same way
+    /// let token = cipher.encode(1, withChecksum: false)
+    /// try cipher.decode(token, withChecksum: false)         // 1
     /// ```
-    public func decode(_ value: String) throws(FeistelCipherError) -> UInt64 {
-        let decoded = try CrockfordEncoder.decode(value)
+    public func decode(_ value: String, withChecksum: Bool = true) throws(FeistelCipherError)
+        -> UInt64
+    {
+        let decoded = try CrockfordEncoder.decode(value, withChecksum: withChecksum)
         return decrypt(decoded)
     }
 

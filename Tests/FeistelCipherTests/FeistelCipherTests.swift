@@ -43,6 +43,35 @@ struct FeistelCipherTests {
         #expect(encoded == "9G0X9D4P5QCWW")
     }
 
+    @Test func testDecodeWithoutChecksumRoundTrip() async throws {
+        // encode(withChecksum: false) + decode(withChecksum: false) must return the original value
+        for id: UInt64 in [1, 42, 1_000, 1_234_567] {
+            let token = cipher.encode(id, withChecksum: false)
+            let decoded = try cipher.decode(token, withChecksum: false)
+            #expect(decoded == id)
+        }
+    }
+
+    @Test func testDecodeWithChecksumTrueFailsOnChecksumlessToken() async throws {
+        // A token encoded without checksum must NOT decode successfully with checksum: true,
+        // because its last value character is consumed as (almost certainly wrong) check char
+        let token = cipher.encode(1, withChecksum: false)
+        #expect(throws: FeistelCipherError.checksumMismatch) {
+            try cipher.decode(token, withChecksum: true)
+        }
+    }
+
+    @Test func testBitWidth50DecodeWithoutChecksumRoundTrip() async throws {
+        // The canonical 10-char use-case: bitWidth 50, no checksum, fixed length
+        let cipher50 = FeistelCipher(key: 722628, bitWidth: 50)
+        for id: UInt64 in [1, 42, 1_000, 1_000_000] {
+            let token = cipher50.encode(id, length: 10, withChecksum: false)
+            #expect(token.count == 10)
+            let decoded = try cipher50.decode(token, withChecksum: false)
+            #expect(decoded == id)
+        }
+    }
+
     // MARK: - Fixed-length encode overload
 
     @Test func testEncodeWithLengthPadsWithLeadingZeros() async throws {
