@@ -1,4 +1,4 @@
-/// Errors thrown by ``FeistelCipher`` during decoding operations.
+/// Errors thrown by ``FeistelCipher`` and ``FeistelCipher32`` during decoding operations.
 public enum FeistelCipherError: Error, Equatable {
 
     /// The token is empty, or contains only separator characters after normalisation.
@@ -18,4 +18,11 @@ public enum FeistelCipherError: Error, Equatable {
     /// This error typically indicates a single-character transcription mistake.
     /// The caller may prompt the user to re-enter or re-scan the token.
     case checksumMismatch
+
+    /// The decoded numeric value exceeds the range supported by the cipher variant.
+    ///
+    /// Thrown by ``FeistelCipher32/decode(_:)`` when the token encodes a value larger
+    /// than `UInt32.max` — for example, when a token produced by the 64-bit
+    /// ``FeistelCipher`` is mistakenly passed to the 32-bit variant.
+    case valueOutOfRange
 }

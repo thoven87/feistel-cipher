@@ -1,18 +1,29 @@
 /// A symmetric cipher that obfuscates and restores `UInt64` values using a Feistel network.
 ///
-/// `FeistelCipher` maps any 64-bit integer to a different 64-bit integer in a fully reversible way.
-/// The same key that encrypts a value is used to decrypt it — no separate key schedule is needed.
+/// `FeistelCipher` operates over a configurable even bit width (8–64 bits, default 64).
+/// The input is split into two equal halves of `bitWidth / 2` bits each, and four Feistel
+/// rounds are applied. The same key that encrypts a value is used to decrypt it.
 ///
-/// Optionally, encrypted values can be encoded into a human-friendly
-/// [Crockford Base32](https://www.crockford.com/base32.html) string with built-in typo detection.
+/// Choosing a smaller `bitWidth` produces shorter encoded tokens:
 ///
-/// ## Example
+/// | `bitWidth` | Halves      | Max token (no checksum) | Max token (with checksum) |
+/// |------------|-------------|-------------------------|---------------------------|
+/// | 64         | 32 + 32 bit | 13 chars                | 14 chars                  |
+/// | 50         | 25 + 25 bit | 10 chars                | 11 chars                  |
+/// | 32         | 16 + 16 bit | 7 chars                 | 8 chars                   |
+///
+/// ## Example — default 64-bit
 /// ```swift
 /// let cipher = FeistelCipher(key: 722628)
+/// let token  = cipher.encode(1)          // "99G7GB6QCKZBH0"
+/// let id     = try cipher.decode(token)  // 1
+/// ```
 ///
-/// let token = cipher.encode(1)          // "99G7GB6QCKZBH0"
-/// let id    = try cipher.decode(token)  // 1
-/// let pretty = cipher.format(token)    // "99G7-GB6Q-CKZB-H0"
+/// ## Example — 50-bit (exactly 10 chars without checksum)
+/// ```swift
+/// let cipher = FeistelCipher(key: 722628, bitWidth: 50)
+/// let token  = cipher.encode(1, length: 10, withChecksum: false)  // always 10 chars
+/// let id     = try cipher.decode(token)                           // 1
 /// ```
 ///
 /// - Note: This is **obfuscation**, not cryptographic encryption.
@@ -25,10 +36,42 @@ public struct FeistelCipher: Sendable {
     /// Changing the key invalidates every previously encoded token.
     public let key: UInt32
 
+    /// The total bit width of the cipher's domain.
+    ///
+    /// Must be an even number between 8 and 64 (inclusive). Determines the size of the
+    /// input/output space: a `bitWidth`-bit cipher is a bijection of `[0, 2^bitWidth - 1]`.
+    /// Smaller values produce shorter Crockford Base32 tokens.
+    public let bitWidth: Int
+
+    /// Half of `bitWidth` — the size of each Feistel half in bits.
+    private let halfWidth: Int
+
+    /// Bitmask for one Feistel half: `(1 << halfWidth) - 1`.
+    ///
+    /// Applied after the round function to keep values within the `halfWidth`-bit domain.
+    private let halfMask: UInt64
+
     /// The number of Feistel rounds applied during encryption and decryption.
     ///
-    /// Four rounds provide a good balance between diffusion and performance for 64-bit IDs.
+    /// Four rounds provide a good balance between diffusion and performance.
     let rounds: Int = 4
+
+    /// Creates a new cipher with the given key and bit width.
+    ///
+    /// - Parameters:
+    ///   - key: The 32-bit secret key.
+    ///   - bitWidth: The total bit width of the cipher domain. Must be even and in `[8, 64]`.
+    ///               Defaults to `64`.
+    public init(key: UInt32, bitWidth: Int = 64) {
+        precondition(
+            bitWidth.isMultiple(of: 2) && bitWidth >= 8 && bitWidth <= 64,
+            "bitWidth must be an even number between 8 and 64, got \(bitWidth)"
+        )
+        self.key = key
+        self.bitWidth = bitWidth
+        self.halfWidth = bitWidth / 2
+        self.halfMask = (UInt64(1) << (bitWidth / 2)) - 1
+    }
 
     // MARK: - Private
 
@@ -67,16 +110,17 @@ public struct FeistelCipher: Sendable {
     /// let encrypted = cipher.encrypt(1)  // 10_718_831_381_117_009_265
     /// ```
     public func encrypt(_ value: UInt64) -> UInt64 {
-        var left = UInt32(value >> 32)
-        var right = UInt32(value & 0xFFFF_FFFF)
+        var left = (value >> halfWidth) & halfMask
+        var right = value & halfMask
 
         for i in 0..<rounds {
             let roundKey = key ^ UInt32(i)
-            let nextRight = left ^ roundFunction(right, roundKey)
+            let f = UInt64(roundFunction(UInt32(right), roundKey)) & halfMask
+            let nextRight = left ^ f
             left = right
             right = nextRight
         }
-        return (UInt64(right) << 32) | UInt64(left)
+        return (right << halfWidth) | left
     }
 
     /// Decrypts an obfuscated 64-bit integer back to its original plain value.
@@ -93,16 +137,17 @@ public struct FeistelCipher: Sendable {
     /// let original = cipher.decrypt(10_718_831_381_117_009_265)  // 1
     /// ```
     public func decrypt(_ value: UInt64) -> UInt64 {
-        var right = UInt32(value >> 32)
-        var left = UInt32(value & 0xFFFF_FFFF)
+        var right = (value >> halfWidth) & halfMask
+        var left = value & halfMask
 
         for i in (0..<rounds).reversed() {
             let roundKey = key ^ UInt32(i)
-            let prevLeft = right ^ roundFunction(left, roundKey)
+            let f = UInt64(roundFunction(UInt32(left), roundKey)) & halfMask
+            let prevLeft = right ^ f
             right = left
             left = prevLeft
         }
-        return (UInt64(left) << 32) | UInt64(right)
+        return (left << halfWidth) | right
     }
 
     // MARK: - String Encoding
